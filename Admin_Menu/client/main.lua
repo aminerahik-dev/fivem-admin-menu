@@ -173,8 +173,11 @@ end)
 
 RegisterNUICallback('stopSpectate', function(_, cb)
     spectating = false
-    NetworkSetInSpectatorMode(false, PlayerPedId())
     local ped = PlayerPedId()
+    -- Only call if the ped has a valid network ID to avoid "no object by ID 0"
+    if NetworkGetNetworkIdFromEntity(ped) ~= 0 then
+        NetworkSetInSpectatorMode(false, ped)
+    end
     SetEntityVisible(ped, true, false)
     SetEntityCollision(ped, true, true)
     cb({})
@@ -349,8 +352,11 @@ end)
 -- Spectate
 RegisterNetEvent('admin_menu:startSpectate')
 AddEventHandler('admin_menu:startSpectate', function(targetNetId)
+    -- Guard: NetworkGetEntityFromNetworkId(0) prints "no object by ID 0" every call
+    if not targetNetId or targetNetId == 0 then return end
+
     local targetEnt = NetworkGetEntityFromNetworkId(targetNetId)
-    if not DoesEntityExist(targetEnt) then return end
+    if not targetEnt or not DoesEntityExist(targetEnt) then return end
 
     spectating = true
     SetEntityVisible(PlayerPedId(), false, false)
