@@ -1,11 +1,13 @@
 
 
-local isMenuOpen  = false
-local noclipOn    = false
-local godmodeOn   = false
-local invisibleOn = false
-local spectating  = false
-local noclipSpeed = 1.0
+local isMenuOpen      = false
+local noclipOn        = false
+local noclipPos       = nil   -- independently tracked position; never read back from engine
+local godmodeOn       = false
+local invisibleOn     = false
+local spectating      = false
+local noclipSpeed     = 1.0
+local suggestionsAdded = false
 
 -- ─── Framework detection ──────────────────────────────────────
 local Framework    = nil
@@ -31,13 +33,23 @@ AddEventHandler('onClientResourceStart', function(res)
 end)
 
 -- ─── Menu open / close ────────────────────────────────────────
-local function OpenMenu()
+local function OpenMenu(permLevel)
     isMenuOpen = true
     SetNuiFocus(true, true)
+
+    -- Build items list from shared config for NUI
+    local items = {}
+    for _, item in ipairs(Config.Items or {}) do
+        items[#items + 1] = item
+    end
+
     SendNUIMessage({
-        action      = 'open',
-        serverName  = Config.ServerName,
-        framework   = FrameworkName,
+        action       = 'open',
+        serverName   = Config.ServerName,
+        framework    = FrameworkName,
+        permLevel    = permLevel or 1,
+        featureLevel = Config.FeatureLevel,
+        items        = items,
         isSpectating = spectating,
     })
     TriggerServerEvent('admin_menu:requestPlayerList')
@@ -62,19 +74,52 @@ end, false)
 
 -- ─── Access response ──────────────────────────────────────────
 RegisterNetEvent('admin_menu:accessGranted')
-AddEventHandler('admin_menu:accessGranted', function()
-    OpenMenu()
+AddEventHandler('admin_menu:accessGranted', function(level)
+    OpenMenu(level)
+
+    -- Register chat suggestions once per session
+    if suggestionsAdded then return end
+    suggestionsAdded = true
+
+    -- Level 1+ (mod)
+    TriggerEvent('chat:addSuggestion', '/kick', 'Kick a player from the server', {
+        { name = 'id',     help = 'Player server ID' },
+        { name = 'reason', help = 'Reason for the kick' },
+    })
+    TriggerEvent('chat:addSuggestion', '/warn', 'Issue a warning to a player', {
+        { name = 'id',     help = 'Player server ID' },
+        { name = 'reason', help = 'Reason for the warning' },
+    })
+    TriggerEvent('chat:addSuggestion', '/mute', 'Mute a player in chat', {
+        { name = 'id',       help = 'Player server ID' },
+        { name = 'duration', help = 'Duration in minutes (0 = permanent)' },
+        { name = 'reason',   help = 'Reason for the mute' },
+    })
+    TriggerEvent('chat:addSuggestion', '/unmute', 'Unmute a player', {
+        { name = 'id', help = 'Player server ID' },
+    })
+    TriggerEvent('chat:addSuggestion', '/revive', 'Revive a dead player', {
+        { name = 'id', help = 'Player server ID (omit to revive yourself)' },
+    })
+
+    -- Level 2+ (admin)
+    if level >= 2 then
+        TriggerEvent('chat:addSuggestion', '/ban', 'Ban a player from the server', {
+            { name = 'id',       help = 'Player server ID' },
+            { name = 'duration', help = 'Duration in hours (0 = permanent)' },
+            { name = 'reason',   help = 'Reason for the ban' },
+        })
+    end
 end)
 
 RegisterNetEvent('admin_menu:accessDenied')
 AddEventHandler('admin_menu:accessDenied', function()
-    local msg = '~r~You do not have permission to use the admin menu.'
     BeginTextCommandThefeedPost('STRING')
-    AddTextComponentSubstringPlayerName(msg)
+    AddTextComponentSubstringPlayerName('~r~No permission to access admin menu.')
     EndTextCommandThefeedPostTicker(false, true)
 end)
 
--- ─── NUI callbacks — menu ─────────────────────────────────────
+-- ─── NUI — menu ───────────────────────────────────────────────
 RegisterNUICallback('closeMenu', function(_, cb)
     CloseMenu()
     cb({})
@@ -85,7 +130,7 @@ RegisterNUICallback('getPlayers', function(_, cb)
     cb({})
 end)
 
--- ─── NUI callbacks — players ──────────────────────────────────
+-- ─── NUI — player actions ─────────────────────────────────────
 RegisterNUICallback('kickPlayer', function(data, cb)
     TriggerServerEvent('admin_menu:kickPlayer', data.serverId, data.reason)
     cb({})
@@ -96,6 +141,21 @@ RegisterNUICallback('banPlayer', function(data, cb)
     cb({})
 end)
 
+RegisterNUICallback('warnPlayer', function(data, cb)
+    TriggerServerEvent('admin_menu:warnPlayer', data.serverId, data.reason)
+    cb({})
+end)
+
+RegisterNUICallback('mutePlayer', function(data, cb)
+    TriggerServerEvent('admin_menu:mutePlayer', data.serverId, data.duration, data.reason)
+    cb({})
+end)
+
+RegisterNUICallback('unmutePlayer', function(data, cb)
+    TriggerServerEvent('admin_menu:unmutePlayer', data.serverId)
+    cb({})
+end)
+
 RegisterNUICallback('freezePlayer', function(data, cb)
     TriggerServerEvent('admin_menu:freezePlayer', data.serverId, data.freeze)
     cb({})
@@ -103,6 +163,11 @@ end)
 
 RegisterNUICallback('healPlayer', function(data, cb)
     TriggerServerEvent('admin_menu:healPlayer', data.serverId)
+    cb({})
+end)
+
+RegisterNUICallback('revivePlayer', function(data, cb)
+    TriggerServerEvent('admin_menu:revivePlayer', data.serverId)
     cb({})
 end)
 
@@ -131,7 +196,37 @@ RegisterNUICallback('giveMoney', function(data, cb)
     cb({})
 end)
 
--- ─── NUI callbacks — self ─────────────────────────────────────
+RegisterNUICallback('giveItems', function(data, cb)
+    TriggerServerEvent('admin_menu:giveItems', data.serverId, data.item, data.count)
+    cb({})
+end)
+
+RegisterNUICallback('getPlayerInfo', function(data, cb)
+    TriggerServerEvent('admin_menu:requestPlayerInfo', data.serverId)
+    cb({})
+end)
+
+RegisterNUICallback('unbanPlayer', function(data, cb)
+    TriggerServerEvent('admin_menu:unbanPlayer', data.identifier)
+    cb({})
+end)
+
+RegisterNUICallback('removeWarn', function(data, cb)
+    TriggerServerEvent('admin_menu:removeWarn', data.warnId, data.identifier)
+    cb({})
+end)
+
+RegisterNUICallback('getBanList', function(_, cb)
+    TriggerServerEvent('admin_menu:requestBanList')
+    cb({})
+end)
+
+RegisterNUICallback('getWarnList', function(_, cb)
+    TriggerServerEvent('admin_menu:requestWarnList')
+    cb({})
+end)
+
+-- ─── NUI — self ───────────────────────────────────────────────
 RegisterNUICallback('toggleGodmode', function(data, cb)
     godmodeOn = data.state
     SetEntityInvincible(PlayerPedId(), godmodeOn)
@@ -140,13 +235,20 @@ end)
 
 RegisterNUICallback('toggleNoclip', function(data, cb)
     noclipOn = data.state
-    if not noclipOn then
-        local ped = PlayerPedId()
+    local ped = PlayerPedId()
+    if noclipOn then
+        -- Capture starting position into our own variable once.
+        -- From this point the thread NEVER reads GetEntityCoords again,
+        -- breaking the physics feedback loop that caused upward drift.
+        noclipPos = GetEntityCoords(ped)
+        SetEntityCollision(ped, false, false)
+        SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+    else
+        noclipPos = nil
         SetEntityCollision(ped, true, true)
         FreezeEntityPosition(ped, false)
-        if not invisibleOn then
-            SetEntityVisible(ped, true, false)
-        end
+        SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+        if not invisibleOn then SetEntityVisible(ped, true, false) end
     end
     cb({})
 end)
@@ -173,8 +275,7 @@ end)
 
 RegisterNUICallback('stopSpectate', function(_, cb)
     spectating = false
-    local ped = PlayerPedId()
-    -- Only call if the ped has a valid network ID to avoid "no object by ID 0"
+    local ped  = PlayerPedId()
     if NetworkGetNetworkIdFromEntity(ped) ~= 0 then
         NetworkSetInSpectatorMode(false, ped)
     end
@@ -183,26 +284,19 @@ RegisterNUICallback('stopSpectate', function(_, cb)
     cb({})
 end)
 
--- ─── NUI callbacks — vehicle ──────────────────────────────────
+-- ─── NUI — vehicle ────────────────────────────────────────────
 RegisterNUICallback('spawnVehicle', function(data, cb)
-    local model = data.model
-    local hash  = GetHashKey(model)
-
+    local hash = GetHashKey(data.model)
     if not IsModelValid(hash) then
-        cb({ success = false, msg = 'Invalid model: ' .. model })
-        return
+        cb({ success = false, msg = 'Invalid model: ' .. data.model }); return
     end
 
     RequestModel(hash)
     local t = 0
-    while not HasModelLoaded(hash) and t < 150 do
-        Wait(100)
-        t = t + 1
-    end
+    while not HasModelLoaded(hash) and t < 150 do Wait(100); t = t + 1 end
 
     if not HasModelLoaded(hash) then
-        cb({ success = false, msg = 'Model timed out: ' .. model })
-        return
+        cb({ success = false, msg = 'Model timed out' }); return
     end
 
     local ped     = PlayerPedId()
@@ -210,15 +304,13 @@ RegisterNUICallback('spawnVehicle', function(data, cb)
     local heading = GetEntityHeading(ped)
 
     if IsPedInAnyVehicle(ped, false) then
-        local old = GetVehiclePedIsIn(ped, false)
-        DeleteVehicle(old)
+        DeleteVehicle(GetVehiclePedIsIn(ped, false))
     end
 
     local veh = CreateVehicle(hash, pos.x, pos.y, pos.z + 1.0, heading, true, false)
     SetPedIntoVehicle(ped, veh, -1)
     SetVehicleOnGroundProperly(veh)
     SetModelAsNoLongerNeeded(hash)
-
     cb({ success = true })
 end)
 
@@ -246,11 +338,10 @@ RegisterNUICallback('maxVehicle', function(_, cb)
     local ped = PlayerPedId()
     if IsPedInAnyVehicle(ped, false) then
         local veh = GetVehiclePedIsIn(ped, false)
-        -- Engine, brakes, transmission, turbo
         for mod = 0, 3 do
             SetVehicleMod(veh, mod, GetNumVehicleMods(veh, mod) - 1, false)
         end
-        ToggleVehicleMod(veh, 18, true) -- turbo
+        ToggleVehicleMod(veh, 18, true)
         SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel', 500.0)
     end
     cb({})
@@ -267,7 +358,7 @@ RegisterNUICallback('deleteVehicle', function(_, cb)
     cb({})
 end)
 
--- ─── NUI callbacks — server ───────────────────────────────────
+-- ─── NUI — server ─────────────────────────────────────────────
 RegisterNUICallback('setWeather', function(data, cb)
     TriggerServerEvent('admin_menu:setWeather', data.weather)
     cb({})
@@ -283,7 +374,7 @@ RegisterNUICallback('sendAnnouncement', function(data, cb)
     cb({})
 end)
 
--- ─── NUI callbacks — teleport ─────────────────────────────────
+-- ─── NUI — teleport ───────────────────────────────────────────
 RegisterNUICallback('teleportToCoords', function(data, cb)
     SetEntityCoords(PlayerPedId(), data.x, data.y, data.z, false, false, false, false)
     cb({})
@@ -312,6 +403,16 @@ AddEventHandler('admin_menu:healSelf', function()
     SetPedArmour(ped, 100)
 end)
 
+RegisterNetEvent('admin_menu:reviveSelf')
+AddEventHandler('admin_menu:reviveSelf', function()
+    local ped = PlayerPedId()
+    if IsEntityDead(ped) then
+        NetworkResurrectLocalPlayer(GetEntityCoords(ped), GetEntityHeading(ped), true, false)
+    end
+    SetEntityHealth(ped, GetEntityMaxHealth(ped))
+    SetPedArmour(ped, 100)
+end)
+
 RegisterNetEvent('admin_menu:receiveWeapon')
 AddEventHandler('admin_menu:receiveWeapon', function(weapon, ammo)
     GiveWeaponToPed(PlayerPedId(), GetHashKey(weapon), ammo, false, true)
@@ -335,14 +436,14 @@ AddEventHandler('admin_menu:setTime', function(hour, minute)
     NetworkOverrideClockTime(hour, minute, 0)
 end)
 
--- Relay admin position for "bring player"
+-- Coordinate relay — bring player
 RegisterNetEvent('admin_menu:sendAdminPos')
 AddEventHandler('admin_menu:sendAdminPos', function(targetId)
     local c = GetEntityCoords(PlayerPedId())
     TriggerServerEvent('admin_menu:receiveAdminPos', targetId, { x = c.x, y = c.y, z = c.z })
 end)
 
--- Relay target position for "teleport to player"
+-- Coordinate relay — teleport to player
 RegisterNetEvent('admin_menu:sendTargetPos')
 AddEventHandler('admin_menu:sendTargetPos', function(adminId)
     local c = GetEntityCoords(PlayerPedId())
@@ -352,15 +453,29 @@ end)
 -- Spectate
 RegisterNetEvent('admin_menu:startSpectate')
 AddEventHandler('admin_menu:startSpectate', function(targetNetId)
-    -- Guard: NetworkGetEntityFromNetworkId(0) prints "no object by ID 0" every call
     if not targetNetId or targetNetId == 0 then return end
-
     local targetEnt = NetworkGetEntityFromNetworkId(targetNetId)
     if not targetEnt or not DoesEntityExist(targetEnt) then return end
-
     spectating = true
     SetEntityVisible(PlayerPedId(), false, false)
     NetworkSetInSpectatorMode(true, targetEnt)
+end)
+
+-- Player info (from server)
+RegisterNetEvent('admin_menu:receivePlayerInfo')
+AddEventHandler('admin_menu:receivePlayerInfo', function(info)
+    SendNUIMessage({ action = 'playerInfo', info = info })
+end)
+
+-- Records
+RegisterNetEvent('admin_menu:receiveBanList')
+AddEventHandler('admin_menu:receiveBanList', function(bans)
+    SendNUIMessage({ action = 'updateBanList', bans = bans })
+end)
+
+RegisterNetEvent('admin_menu:receiveWarnList')
+AddEventHandler('admin_menu:receiveWarnList', function(warns)
+    SendNUIMessage({ action = 'updateWarnList', warns = warns })
 end)
 
 -- ─── NoClip thread ────────────────────────────────────────────
@@ -368,35 +483,45 @@ CreateThread(function()
     while true do
         if noclipOn then
             Wait(0)
+
             local ped = PlayerPedId()
-            local pos = GetEntityCoords(ped)
 
-            SetEntityCollision(ped, false, false)
-            FreezeEntityPosition(ped, true)
-            SetEntityVisible(ped, false, false)
+            -- Re-check after Wait(0): the NUI callback may have set noclipOn = false
+            -- while this coroutine was yielded. Without this, the block below would
+            -- re-apply SetEntityCollision(false) / SetEntityVisible(false) one last
+            -- frame, leaving the player invisible and falling with no collision.
+            if not noclipOn then
+                SetEntityCollision(ped, true, true)
+                SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+                if not invisibleOn then SetEntityVisible(ped, true, false) end
+                noclipPos = nil
+            else
+                SetEntityCollision(ped, false, false)
+                SetEntityVisible(ped, false, false)
 
-            local rot = GetGameplayCamRot(2)
-            local rx  = math.rad(rot.x)
-            local rz  = math.rad(rot.z)
+                if not noclipPos then
+                    noclipPos = GetEntityCoords(ped)
+                end
 
-            local dir = vector3(
-                -math.sin(rz) * math.abs(math.cos(rx)),
-                 math.cos(rz) * math.abs(math.cos(rx)),
-                 math.sin(rx)
-            )
-            local right = vector3(math.cos(rz), math.sin(rz), 0.0)
-            local spd   = noclipSpeed * 0.45
+                local rot = GetGameplayCamRot(2)
+                local rz  = math.rad(rot.z)
+                local spd = noclipSpeed * GetFrameTime() * 22.0
 
-            -- W / S / A / D / E (up) / Q (down)
-            if IsControlPressed(0, 32) then pos = pos + dir   * spd end
-            if IsControlPressed(0, 33) then pos = pos - dir   * spd end
-            if IsControlPressed(0, 34) then pos = pos - right * spd end
-            if IsControlPressed(0, 35) then pos = pos + right * spd end
-            if IsControlPressed(0, 38) then pos = vector3(pos.x, pos.y, pos.z + spd) end
-            if IsControlPressed(0, 44) then pos = vector3(pos.x, pos.y, pos.z - spd) end
+                local fwd   = vector3(-math.sin(rz), math.cos(rz), 0.0)
+                local right = vector3( math.cos(rz), math.sin(rz), 0.0)
 
-            SetEntityCoords(ped, pos.x, pos.y, pos.z, false, false, false, false)
+                if IsControlPressed(0, 32) then noclipPos = noclipPos + fwd   * spd end  -- W
+                if IsControlPressed(0, 33) then noclipPos = noclipPos - fwd   * spd end  -- S
+                if IsControlPressed(0, 34) then noclipPos = noclipPos - right * spd end  -- A
+                if IsControlPressed(0, 35) then noclipPos = noclipPos + right * spd end  -- D
+                if IsControlPressed(0, 38) then noclipPos = vector3(noclipPos.x, noclipPos.y, noclipPos.z + spd) end  -- E  up
+                if IsControlPressed(0, 44) then noclipPos = vector3(noclipPos.x, noclipPos.y, noclipPos.z - spd) end  -- Q  down
+
+                SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+                SetEntityCoords(ped, noclipPos.x, noclipPos.y, noclipPos.z, false, false, false, false)
+            end
         else
+            noclipPos = nil
             Wait(500)
         end
     end
