@@ -2,6 +2,7 @@
 
 local isMenuOpen  = false
 local noclipOn    = false
+local noclipPos   = nil   
 local godmodeOn   = false
 local invisibleOn = false
 local spectating  = false
@@ -199,10 +200,19 @@ end)
 
 RegisterNUICallback('toggleNoclip', function(data, cb)
     noclipOn = data.state
-    if not noclipOn then
-        local ped = PlayerPedId()
+    local ped = PlayerPedId()
+    if noclipOn then
+        -- Capture starting position into our own variable once.
+        -- From this point the thread NEVER reads GetEntityCoords again,
+        -- breaking the physics feedback loop that caused upward drift.
+        noclipPos = GetEntityCoords(ped)
+        SetEntityCollision(ped, false, false)
+        SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+    else
+        noclipPos = nil
         SetEntityCollision(ped, true, true)
         FreezeEntityPosition(ped, false)
+        SetEntityVelocity(ped, 0.0, 0.0, 0.0)
         if not invisibleOn then SetEntityVisible(ped, true, false) end
     end
     cb({})
@@ -442,29 +452,35 @@ CreateThread(function()
 
             SetEntityCollision(ped, false, false)
             SetEntityVisible(ped, false, false)
-            -- FreezeEntityPosition is intentionally NOT used here —
-            -- it conflicts with SetEntityCoords every frame and causes crashes.
+
+            -- Safety: initialise position if somehow nil
+            if not noclipPos then
+                noclipPos = GetEntityCoords(ped)
+            end
 
             local rot = GetGameplayCamRot(2)
             local rz  = math.rad(rot.z)
-            local spd = noclipSpeed * 0.5
 
-            -- Horizontal-only vectors so W/S never drift vertically with camera pitch
-            local fwd   = vector3(-math.sin(rz),  math.cos(rz), 0.0)
-            local right = vector3( math.cos(rz),  math.sin(rz), 0.0)
+            -- Frame-time based speed so movement is consistent at any FPS
+            local spd = noclipSpeed * GetFrameTime() * 22.0
 
-            local pos = GetEntityCoords(ped)
+            -- Horizontal-only vectors — W/S move on the XY plane, no vertical camera pitch
+            local fwd   = vector3(-math.sin(rz), math.cos(rz), 0.0)
+            local right = vector3( math.cos(rz), math.sin(rz), 0.0)
 
-            if IsControlPressed(0, 32) then pos = pos + fwd   * spd end  -- W
-            if IsControlPressed(0, 33) then pos = pos - fwd   * spd end  -- S
-            if IsControlPressed(0, 34) then pos = pos - right * spd end  -- A
-            if IsControlPressed(0, 35) then pos = pos + right * spd end  -- D
-            if IsControlPressed(0, 38) then pos = vector3(pos.x, pos.y, pos.z + spd) end  -- E  up
-            if IsControlPressed(0, 44) then pos = vector3(pos.x, pos.y, pos.z - spd) end  -- Q  down
+            if IsControlPressed(0, 32) then noclipPos = noclipPos + fwd   * spd end  -- W
+            if IsControlPressed(0, 33) then noclipPos = noclipPos - fwd   * spd end  -- S
+            if IsControlPressed(0, 34) then noclipPos = noclipPos - right * spd end  -- A
+            if IsControlPressed(0, 35) then noclipPos = noclipPos + right * spd end  -- D
+            if IsControlPressed(0, 38) then noclipPos = vector3(noclipPos.x, noclipPos.y, noclipPos.z + spd) end  -- E  up
+            if IsControlPressed(0, 44) then noclipPos = vector3(noclipPos.x, noclipPos.y, noclipPos.z - spd) end  -- Q  down
 
-            SetEntityCoords(ped, pos.x, pos.y, pos.z, false, false, false, false)
-            SetEntityVelocity(ped, 0.0, 0.0, 0.0)  -- cancel gravity / physics drift
+            -- Zero velocity BEFORE setting coords so the engine has no momentum
+            -- to apply between our call and the next physics tick
+            SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+            SetEntityCoords(ped, noclipPos.x, noclipPos.y, noclipPos.z, false, false, false, false)
         else
+            noclipPos = nil
             Wait(500)
         end
     end

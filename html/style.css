@@ -575,7 +575,6 @@ html, body {
     font-size: 13px; font-weight: 500;
     z-index: 999; max-width: 320px;
     border: 1px solid transparent;
-    backdrop-filter: blur(12px);
     animation: toastIn 0.2s var(--ease) both;
 }
 @keyframes toastIn {
