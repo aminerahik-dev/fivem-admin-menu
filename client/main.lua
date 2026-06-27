@@ -1,12 +1,13 @@
 
 
-local isMenuOpen  = false
-local noclipOn    = false
-local noclipPos   = nil   
-local godmodeOn   = false
-local invisibleOn = false
-local spectating  = false
-local noclipSpeed = 1.0
+local isMenuOpen      = false
+local noclipOn        = false
+local noclipPos       = nil   -- independently tracked position; never read back from engine
+local godmodeOn       = false
+local invisibleOn     = false
+local spectating      = false
+local noclipSpeed     = 1.0
+local suggestionsAdded = false
 
 -- ─── Framework detection ──────────────────────────────────────
 local Framework    = nil
@@ -75,6 +76,40 @@ end, false)
 RegisterNetEvent('admin_menu:accessGranted')
 AddEventHandler('admin_menu:accessGranted', function(level)
     OpenMenu(level)
+
+    -- Register chat suggestions once per session
+    if suggestionsAdded then return end
+    suggestionsAdded = true
+
+    -- Level 1+ (mod)
+    TriggerEvent('chat:addSuggestion', '/kick', 'Kick a player from the server', {
+        { name = 'id',     help = 'Player server ID' },
+        { name = 'reason', help = 'Reason for the kick' },
+    })
+    TriggerEvent('chat:addSuggestion', '/warn', 'Issue a warning to a player', {
+        { name = 'id',     help = 'Player server ID' },
+        { name = 'reason', help = 'Reason for the warning' },
+    })
+    TriggerEvent('chat:addSuggestion', '/mute', 'Mute a player in chat', {
+        { name = 'id',       help = 'Player server ID' },
+        { name = 'duration', help = 'Duration in minutes (0 = permanent)' },
+        { name = 'reason',   help = 'Reason for the mute' },
+    })
+    TriggerEvent('chat:addSuggestion', '/unmute', 'Unmute a player', {
+        { name = 'id', help = 'Player server ID' },
+    })
+    TriggerEvent('chat:addSuggestion', '/revive', 'Revive a dead player', {
+        { name = 'id', help = 'Player server ID (omit to revive yourself)' },
+    })
+
+    -- Level 2+ (admin)
+    if level >= 2 then
+        TriggerEvent('chat:addSuggestion', '/ban', 'Ban a player from the server', {
+            { name = 'id',       help = 'Player server ID' },
+            { name = 'duration', help = 'Duration in hours (0 = permanent)' },
+            { name = 'reason',   help = 'Reason for the ban' },
+        })
+    end
 end)
 
 RegisterNetEvent('admin_menu:accessDenied')
@@ -448,37 +483,43 @@ CreateThread(function()
     while true do
         if noclipOn then
             Wait(0)
+
             local ped = PlayerPedId()
 
-            SetEntityCollision(ped, false, false)
-            SetEntityVisible(ped, false, false)
+            -- Re-check after Wait(0): the NUI callback may have set noclipOn = false
+            -- while this coroutine was yielded. Without this, the block below would
+            -- re-apply SetEntityCollision(false) / SetEntityVisible(false) one last
+            -- frame, leaving the player invisible and falling with no collision.
+            if not noclipOn then
+                SetEntityCollision(ped, true, true)
+                SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+                if not invisibleOn then SetEntityVisible(ped, true, false) end
+                noclipPos = nil
+            else
+                SetEntityCollision(ped, false, false)
+                SetEntityVisible(ped, false, false)
 
-            -- Safety: initialise position if somehow nil
-            if not noclipPos then
-                noclipPos = GetEntityCoords(ped)
+                if not noclipPos then
+                    noclipPos = GetEntityCoords(ped)
+                end
+
+                local rot = GetGameplayCamRot(2)
+                local rz  = math.rad(rot.z)
+                local spd = noclipSpeed * GetFrameTime() * 22.0
+
+                local fwd   = vector3(-math.sin(rz), math.cos(rz), 0.0)
+                local right = vector3( math.cos(rz), math.sin(rz), 0.0)
+
+                if IsControlPressed(0, 32) then noclipPos = noclipPos + fwd   * spd end  -- W
+                if IsControlPressed(0, 33) then noclipPos = noclipPos - fwd   * spd end  -- S
+                if IsControlPressed(0, 34) then noclipPos = noclipPos - right * spd end  -- A
+                if IsControlPressed(0, 35) then noclipPos = noclipPos + right * spd end  -- D
+                if IsControlPressed(0, 38) then noclipPos = vector3(noclipPos.x, noclipPos.y, noclipPos.z + spd) end  -- E  up
+                if IsControlPressed(0, 44) then noclipPos = vector3(noclipPos.x, noclipPos.y, noclipPos.z - spd) end  -- Q  down
+
+                SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+                SetEntityCoords(ped, noclipPos.x, noclipPos.y, noclipPos.z, false, false, false, false)
             end
-
-            local rot = GetGameplayCamRot(2)
-            local rz  = math.rad(rot.z)
-
-            -- Frame-time based speed so movement is consistent at any FPS
-            local spd = noclipSpeed * GetFrameTime() * 22.0
-
-            -- Horizontal-only vectors — W/S move on the XY plane, no vertical camera pitch
-            local fwd   = vector3(-math.sin(rz), math.cos(rz), 0.0)
-            local right = vector3( math.cos(rz), math.sin(rz), 0.0)
-
-            if IsControlPressed(0, 32) then noclipPos = noclipPos + fwd   * spd end  -- W
-            if IsControlPressed(0, 33) then noclipPos = noclipPos - fwd   * spd end  -- S
-            if IsControlPressed(0, 34) then noclipPos = noclipPos - right * spd end  -- A
-            if IsControlPressed(0, 35) then noclipPos = noclipPos + right * spd end  -- D
-            if IsControlPressed(0, 38) then noclipPos = vector3(noclipPos.x, noclipPos.y, noclipPos.z + spd) end  -- E  up
-            if IsControlPressed(0, 44) then noclipPos = vector3(noclipPos.x, noclipPos.y, noclipPos.z - spd) end  -- Q  down
-
-            -- Zero velocity BEFORE setting coords so the engine has no momentum
-            -- to apply between our call and the next physics tick
-            SetEntityVelocity(ped, 0.0, 0.0, 0.0)
-            SetEntityCoords(ped, noclipPos.x, noclipPos.y, noclipPos.z, false, false, false, false)
         else
             noclipPos = nil
             Wait(500)
