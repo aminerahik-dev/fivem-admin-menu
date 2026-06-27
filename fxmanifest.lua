@@ -7,12 +7,12 @@ version     '2.0.0'
 description 'Professional multi-framework admin menu — ESX, QBCore, Standalone'
 repository  'https://github.com/aminerahik-dev/FiveM-Admin-Menu'
 
--- Shared
+
 shared_scripts {
     'config.lua'
 }
 
--- Server
+
 server_scripts {
     -- '@oxmysql/lib/MySQL.lua', -- uncomment if using oxmysql for persistent ban storage
     'server/database.lua',
@@ -21,12 +21,12 @@ server_scripts {
     'server/main.lua'
 }
 
--- Client
+
 client_scripts {
     'client/main.lua'
 }
 
--- NUI
+
 ui_page 'html/index.html'
 
 files {
@@ -35,5 +35,3 @@ files {
     'html/script.js'
 }
 
--- Lua 5.4
-lua54 'yes'
