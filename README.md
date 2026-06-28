@@ -19,7 +19,7 @@
 
 A clean, dark-themed admin menu built for serious FiveM servers. No bloat, no third-party UI libraries. Full player management, 3-tier permission system, persistent ban records, and action logging — all in one resource.
 
-→ [Jump to screenshots](#-previews)
+→ [Jump to screenshots](/previews)
 
 ---
 
