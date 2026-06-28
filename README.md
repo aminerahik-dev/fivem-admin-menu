@@ -19,7 +19,33 @@
 
 A clean, dark-themed admin menu built for serious FiveM servers. No bloat, no third-party UI libraries. Full player management, 3-tier permission system, persistent ban records, and action logging — all in one resource.
 
-> **Screenshot / GIF preview here** — 
+→ [Jump to screenshots](#-preview)
+
+---
+
+## 🖼️ Preview
+
+<div align="center">
+
+**Main Menu — Player List**
+![Main menu](previews/preview-main.png)
+
+**Player Actions Panel**
+![Player actions](previews/preview-player-actions.png)
+
+**Self Controls**
+![Self controls](previews/preview-self-controls.png)
+
+**Records — Ban List**
+![Ban records](previews/preview-records-bans.png)
+
+**Vehicle Tools**
+![Vehicle tools](previews/preview-vehicle-tools.png)
+
+**Weather & Time**
+![Weather and time](previews/preview-weather-time.png)
+
+</div>
 
 ---
 
