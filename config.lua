@@ -1,5 +1,7 @@
 Config = {}
 
+
+
 --[[
     FRAMEWORK
     'auto'       — auto-detect ESX / QBCore (recommended)
