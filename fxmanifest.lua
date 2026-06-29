@@ -12,6 +12,7 @@ shared_scripts {
     'config.lua'
 }
 
+
 server_scripts {
     -- '@oxmysql/lib/MySQL.lua', -- uncomment if using oxmysql for persistent ban storage
     'server/database.lua',
